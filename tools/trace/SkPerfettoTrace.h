@@ -12,7 +12,15 @@
 #include "tools/trace/EventTracingPriv.h"
 #include "perfetto.h"
 
-PERFETTO_DEFINE_CATEGORIES();
+// MSVC 不接受零长数组（C2466 / C2131 / C2070）：空参数的 PERFETTO_DEFINE_CATEGORIES()
+// 会展开成
+//     constexpr ::perfetto::Category kCategories[] = {};
+//     constexpr size_t kCategoryCount = sizeof(kCategories) / sizeof(kCategories[0]);
+// GCC/Clang 把零长数组当扩展放行，MSVC 直接报错。这正是上游把 skia_use_perfetto 默认
+// 限定在 linux/mac/android 的实际原因（gn/skia.gni:83 只是「没在 Windows 上验证过」的
+// 保守默认值）。Skia 的追踪事件全部走 perfetto::DynamicCategory，动态类别在运行期按
+// 名字解析，静态类别表不被使用，所以补一个占位类别让数组非空即可，事件语义不变。
+PERFETTO_DEFINE_CATEGORIES(PERFETTO_CATEGORY(skia));
 
 /**
  * This class is used to support Perfetto tracing. It hooks into the SkEventTracer system.
