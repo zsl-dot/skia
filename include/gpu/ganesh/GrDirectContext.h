@@ -532,6 +532,17 @@ public:
     void storeVkPipelineCacheData(size_t maxSize);
 
     /**
+     * Merges a serialized Vulkan pipeline cache blob into this context's live VkPipelineCache
+     * using vkMergePipelineCaches. Compatibility is left to the driver.
+     *
+     * @return >= 0: delta bytes grown in the live cache (after - before);
+     *         <  0: Skia-internal error (not HWUI MergeCode). Typical values:
+     *             -100 no Gpu / unsupported backend, -101 empty blob, -102 null dst,
+     *             -103 CreatePipelineCache failed, -104 MergePipelineCaches failed.
+     */
+    int mergeVkPipelineCacheData(const SkData& data);
+
+    /**
      * Retrieve the default GrBackendFormat for a given SkColorType and renderability.
      * It is guaranteed that this backend format will be the one used by the following
      * SkColorType and GrSurfaceCharacterization-based createBackendTexture methods.

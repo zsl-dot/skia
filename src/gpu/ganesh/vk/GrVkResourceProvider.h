@@ -208,6 +208,11 @@ public:
 
     void storePipelineCacheData(size_t maxSize);
 
+    // Merge a serialized VkPipelineCache blob into the live pipeline cache via
+    // vkCreatePipelineCache(pInitialData) + vkMergePipelineCaches.
+    // >=0: delta bytes (after - before); <0: Skia-internal error (-101..-104).
+    int mergePipelineCacheData(const SkData& data);
+
     // Destroy any cached resources. To be called before destroying the VkDevice.
     // The assumption is that all queues are idle and all command buffers are finished.
     // For resource tracing to work properly, this should be called after unrefing all other

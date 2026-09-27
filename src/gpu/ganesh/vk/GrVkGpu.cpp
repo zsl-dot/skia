@@ -2769,3 +2769,14 @@ void GrVkGpu::storeVkPipelineCacheData(size_t maxSize) {
     this->resourceProvider().storePipelineCacheData(maxSize);
     fHasNewVkPipelineCacheData = false;
 }
+
+int GrVkGpu::mergeVkPipelineCacheData(const SkData& data) {
+    const int delta = this->resourceProvider().mergePipelineCacheData(data);
+    if (delta < 0) {
+        return delta;
+    }
+    // Reuse the existing "pipeline cache changed" bit so HWUI's onVkFrameFlushed
+    // lazy store path picks this up (no new public API).
+    this->pipelineCompileWasRequired();
+    return delta;
+}

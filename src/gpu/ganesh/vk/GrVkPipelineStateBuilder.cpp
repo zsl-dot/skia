@@ -177,6 +177,8 @@ void GrVkPipelineStateBuilder::storeShadersInCache(const SkSL::NativeShader shad
             kGrShaderTypeCount);
 
     this->gpu()->getContext()->priv().getPersistentCache()->store(*key, *data, description);
+    SkDebugf("[VkPersistentCache] shader STORE keyBytes=%zu dataBytes=%zu\n",
+             key->size(), data->size());
 }
 
 GrVkPipelineState* GrVkPipelineStateBuilder::finalize(const GrProgramDesc& desc,
@@ -231,6 +233,10 @@ GrVkPipelineState* GrVkPipelineStateBuilder::finalize(const GrProgramDesc& desc,
         if (cached) {
             reader.setMemory(cached->data(), cached->size());
             shaderType = GrPersistentCacheUtils::GetType(&reader);
+            SkDebugf("[VkPersistentCache] shader LOAD HIT keyBytes=%zu dataBytes=%zu type=0x%08x\n",
+                     key->size(), cached->size(), shaderType);
+        } else {
+            SkDebugf("[VkPersistentCache] shader LOAD MISS keyBytes=%zu\n", key->size());
         }
     }
 
@@ -241,6 +247,7 @@ GrVkPipelineState* GrVkPipelineStateBuilder::finalize(const GrProgramDesc& desc,
 
     // Proceed from sources if we didn't get a SPIRV cache (or the cache was invalid)
     if (!numShaderStages) {
+        SkDebugf("[VkPersistentCache] shader COMPILE (no usable SPIR-V in cache)\n");
         numShaderStages = 2; // We always have at least vertex and fragment stages.
         SkSL::NativeShader shaders[kGrShaderTypeCount];
         SkSL::Program::Interface interfaces[kGrShaderTypeCount];

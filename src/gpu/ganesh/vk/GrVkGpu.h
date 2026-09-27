@@ -231,6 +231,7 @@ public:
     bool canDetectNewVkPipelineCacheData() const override;
     bool hasNewVkPipelineCacheData() const override;
     void storeVkPipelineCacheData(size_t maxSize) override;
+    int mergeVkPipelineCacheData(const SkData& data) override;
 
     bool beginRenderPass(const GrVkRenderPass*,
                          sk_sp<const GrVkFramebuffer>,

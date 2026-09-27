@@ -574,6 +574,13 @@ void GrDirectContext::storeVkPipelineCacheData(size_t maxSize) {
     }
 }
 
+int GrDirectContext::mergeVkPipelineCacheData(const SkData& data) {
+    if (fGpu) {
+        return fGpu->mergeVkPipelineCacheData(data);
+    }
+    return -100;  // no Gpu (Skia-internal; not HWUI MergeCode)
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 bool GrDirectContext::supportsDistanceFieldText() const {
