@@ -32,6 +32,32 @@
 #include <algorithm>
 #include <cstring>
 
+namespace {
+
+// Same validation as pipelineCache() before passing blob to vkCreatePipelineCache.
+bool isCompatibleVkPipelineCacheData(const SkData& data, const GrVkGpu* gpu) {
+    if (data.isEmpty() || gpu == nullptr) {
+        return false;
+    }
+    static constexpr size_t kPipelineCacheHeaderSize = 16 + VK_UUID_SIZE;
+    if (data.size() < kPipelineCacheHeaderSize) {
+        return false;
+    }
+    const uint32_t* cacheHeader = static_cast<const uint32_t*>(data.data());
+    if (cacheHeader[1] != VK_PIPELINE_CACHE_HEADER_VERSION_ONE) {
+        return false;
+    }
+    if (cacheHeader[0] != kPipelineCacheHeaderSize) {
+        return false;
+    }
+    const VkPhysicalDeviceProperties& devProps = gpu->physicalDeviceProperties();
+    const uint8_t* supportedPipelineCacheUUID = devProps.pipelineCacheUUID;
+    return cacheHeader[2] == devProps.vendorID && cacheHeader[3] == devProps.deviceID &&
+           !memcmp(&cacheHeader[4], supportedPipelineCacheUUID, VK_UUID_SIZE);
+}
+
+}  // namespace
+
 class GrProgramInfo;
 class GrRenderTarget;
 class GrVkDescriptorSet;
@@ -86,6 +112,9 @@ VkPipelineCache GrVkResourceProvider::pipelineCache() {
         if (!usedCached) {
             createInfo.initialDataSize = 0;
             createInfo.pInitialData = nullptr;
+            SkDebugf("[VkPersistentCache] pipelineCache LOAD MISS (no blob or UUID/vendor mismatch)\n");
+        } else {
+            SkDebugf("[VkPersistentCache] pipelineCache LOAD HIT bytes=%zu\n", cached->size());
         }
 
         VkResult result;
@@ -588,6 +617,75 @@ void GrVkResourceProvider::storePipelineCacheData(size_t maxSize) {
 
     fGpu->getContext()->priv().getPersistentCache()->store(
             *keyData, *SkData::MakeWithoutCopy(data.get(), dataSize), SkString("VkPipelineCache"));
+    SkDebugf("[VkPersistentCache] pipelineCache STORE bytes=%zu\n", dataSize);
+}
+
+int GrVkResourceProvider::mergePipelineCacheData(const SkData& data) {
+    TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-GrVkResourceProvider");
+    // Skia-internal errors (avoid colliding with HWUI MergeCode -1..-5):
+    //   -101 empty blob; -102 null dst; -103 create fail; -104 merge fail;
+    //   -105 incompatible pipeline cache header (vendor/device/UUID/version).
+    // Success: >=0 delta bytes.
+    if (data.isEmpty()) {
+        TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-emptyBlob");
+        return -101;
+    }
+
+    if (!isCompatibleVkPipelineCacheData(data, fGpu)) {
+        TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-incompatibleBlob");
+        return -105;
+    }
+
+    VkPipelineCache dst = this->pipelineCache();
+    if (dst == VK_NULL_HANDLE) {
+        TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-nullDst");
+        return -102;
+    }
+
+    auto queryCacheSize = [this](VkPipelineCache cache) -> size_t {
+        size_t size = 0;
+        VkResult queryResult;
+        GR_VK_CALL_RESULT(fGpu, queryResult,
+                          GetPipelineCacheData(fGpu->device(), cache, &size, nullptr));
+        return (queryResult == VK_SUCCESS) ? size : 0;
+    };
+
+    const size_t dstSizeBefore = queryCacheSize(dst);
+
+    VkPipelineCacheCreateInfo createInfo;
+    memset(&createInfo, 0, sizeof(VkPipelineCacheCreateInfo));
+    createInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    createInfo.pNext = nullptr;
+    createInfo.flags = 0;
+    createInfo.initialDataSize = data.size();
+    createInfo.pInitialData = data.data();
+
+    VkPipelineCache src = VK_NULL_HANDLE;
+    VkResult result;
+    GR_VK_CALL_RESULT(fGpu, result,
+                      CreatePipelineCache(fGpu->device(), &createInfo, nullptr, &src));
+    if (result != VK_SUCCESS || src == VK_NULL_HANDLE) {
+        TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-CreateFailed");
+        return -103;
+    }
+    const size_t srcSize = queryCacheSize(src);
+    GR_VK_CALL_RESULT(fGpu, result, MergePipelineCaches(fGpu->device(), dst, 1, &src));
+    GR_VK_CALL(fGpu->vkInterface(), DestroyPipelineCache(fGpu->device(), src, nullptr));
+    if (result != VK_SUCCESS) {
+        TRACE_EVENT0_ALWAYS("skia.shaders", "MergePipelineCache-MergeFailed");
+        return -104;
+    }
+
+    const size_t dstSizeAfter = queryCacheSize(dst);
+    const int delta = dstSizeAfter >= dstSizeBefore
+                              ? (int)(dstSizeAfter - dstSizeBefore)
+                              : 0;
+    ATRACE_ANDROID_FRAMEWORK_ALWAYS(
+            "VkPipelineCacheMerge before=%d after=%d inject=%d delta=%d",
+            (int)dstSizeBefore, (int)dstSizeAfter, (int)srcSize, delta);
+    SkDebugf("[VkPersistentCache] pipelineCache MERGE before=%zu after=%zu inject=%zu delta=%d\n",
+             dstSizeBefore, dstSizeAfter, srcSize, delta);
+    return delta;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
